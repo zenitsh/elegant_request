@@ -58,14 +58,14 @@ pub enum RequestArgument {
 #[derive(Debug, Clone)]
 pub struct Request {
     method: Method,
-    args: HashMap<String, RequestArgument>,
+    params: HashMap<String, RequestArgument>,
     url: String,
     value_name: ValueName,
 }
 
 #[derive(Serialize, Deserialize)]
 struct RequestYamlStruct {
-    args: HashMap<String, RequestArgument>,
+    params: HashMap<String, RequestArgument>,
     url: String,
     value: String,
 }
@@ -81,13 +81,13 @@ enum RequestYamlEnum {
 impl Request {
     pub fn new(
         method: Method,
-        args: HashMap<String, RequestArgument>,
+        params: HashMap<String, RequestArgument>,
         url: &str,
         value_name: ValueName,
     ) -> Self {
         Request {
             method,
-            args,
+            params,
             url: String::from(url),
             value_name,
         }
@@ -104,19 +104,19 @@ impl Request {
             };
             (
                 s.clone(),
-                Request::new(m, r.args.clone(), &r.url, ValueName::from_str(&r.value)),
+                Request::new(m, r.params.clone(), &r.url, ValueName::from_str(&r.value)),
             )
         });
         Ok(HashMap::from_iter(map))
     }
     pub fn send(
         &self,
-        args: &HashMap<String, String>,
+        params: &HashMap<String, String>,
     ) -> impl Future<Output = Result<reqwest::Response, reqwest::Error>> {
         let client = reqwest::Client::new();
         let s = client.request(
             self.method.clone(),
-            reqwest::Url::parse_with_params(&self.url, args).unwrap(),
+            reqwest::Url::parse_with_params(&self.url, params).unwrap(),
         );
         println!("{:?}", s);
         s.send()
@@ -153,8 +153,8 @@ impl ResponsePool {
             Ok(v.clone())
         } else {
             let r = self.request.get(name).unwrap().clone();
-            let mut args = HashMap::new();
-            for (n, v) in r.args.iter() {
+            let mut params = HashMap::new();
+            for (n, v) in r.params.iter() {
                 let res = match v {
                     RequestArgument::Const(v) => v.clone(),
                     RequestArgument::Ref(v) => self.get(&v).await?,
@@ -163,15 +163,15 @@ impl ResponsePool {
                     serde_json::Value::String(s) => s,
                     s => s.to_string(),
                 };
-                args.insert(n.clone(), res);
+                params.insert(n.clone(), res);
             }
-            let key = reqwest::Url::parse_with_params(&r.url, &args)
+            let key = reqwest::Url::parse_with_params(&r.url, &params)
                 .unwrap()
                 .to_string();
             if let Some(res) = self.cache.get(&key) {
                 Ok(res.clone())
             } else {
-                let req = r.send(&args);
+                let req = r.send(&params);
                 let res: serde_json::Value = req.await?.json().await?;
                 self.cache.insert(key, res.clone());
                 let res = r.value_name().parse(&res);
