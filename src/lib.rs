@@ -16,7 +16,7 @@ mod tests {
 
         response_pool.set_data_value("input", serde_json::Value::Number(Number::from(2)));
 
-        let c = response_pool.get("foo").unwrap();
+        let c = tokio::runtime::Runtime::new().unwrap().block_on(response_pool.get("foo"));
 
         println!("{:?}", c);
     }

@@ -1,12 +1,14 @@
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, error::Error, future::Future};
 
-use reqwest::{Method, Response};
+use reqwest::Method;
 use serde_derive::{Deserialize, Serialize};
+
+use async_recursion::async_recursion;
 
 #[derive(Debug, Clone)]
 pub enum Index {
     String(String),
-    Integer(usize)
+    Integer(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -24,7 +26,7 @@ impl ValueName {
                 let t = usize::from_str_radix(&s, 10);
                 match t {
                     Ok(v) => Index::Integer(v),
-                    Err(_) => Index::String(s)
+                    Err(_) => Index::String(s),
                 }
             }));
             ValueName {
@@ -38,8 +40,9 @@ impl ValueName {
             for n in v1.iter() {
                 v = match n {
                     Index::Integer(v2) => v.get(v2),
-                    Index::String(v2) => v.get(v2)
-                }.unwrap();
+                    Index::String(v2) => v.get(v2),
+                }
+                .unwrap();
             }
         }
         v
@@ -106,13 +109,14 @@ impl Request {
         });
         Ok(HashMap::from_iter(map))
     }
-    pub async fn send(&self, args: &HashMap<String, String>) -> Response {
+    pub fn send(&self, args: &HashMap<String, String>) -> impl Future<Output = Result<reqwest::Response, reqwest::Error>> {
         let client = reqwest::Client::new();
         let s = client.request(
             self.method.clone(),
             reqwest::Url::parse_with_params(&self.url, args).unwrap(),
         );
-        s.send().await.unwrap()
+        println!("{:?}", s);
+        s.send()
     }
     pub fn value_name(&self) -> &ValueName {
         &self.value_name
@@ -138,29 +142,26 @@ impl ResponsePool {
     pub fn data_value(&self, name: &str) -> serde_json::Value {
         self.data.get(name).unwrap().clone()
     }
-    pub fn get(&mut self, name: &str) -> Result<serde_json::Value, Box<dyn Error>> {
+    #[async_recursion]
+    pub async fn get(&mut self, name: &str) -> Result<serde_json::Value, Box<dyn Error>> {
         if let Some(v) = self.data.get(name) {
             Ok(v.clone())
         } else {
             let r = self.request.get(name).unwrap().clone();
             let mut args = HashMap::new();
             for (n, v) in r.args.iter() {
-                match v {
-                    RequestArgument::Const(v) => {
-                        args.insert(n.clone(), v.to_string());
-                        ()
-                    }
-                    RequestArgument::Ref(v) => {
-                        args.insert(n.clone(), self.get(&v).unwrap().to_string());
-                    }
+                let res = match v {
+                    RequestArgument::Const(v) => v.clone(),
+                    RequestArgument::Ref(v) => self.get(&v).await?
                 };
+                let res = match res {
+                    serde_json::Value::String(s) => s,
+                    s => s.to_string(),
+                };
+                args.insert(n.clone(), res);
             }
             let req = r.send(&args);
-            let res = tokio::runtime::Runtime::new().unwrap().block_on(req);
-            let res: serde_json::Value = tokio::runtime::Runtime::new()
-                .unwrap()
-                .block_on(res.json())
-                .unwrap();
+            let res = req.await?.json().await?;
             let res = r.value_name().parse(&res);
             self.set_data_value(name, res.clone());
             Ok(res.clone())
