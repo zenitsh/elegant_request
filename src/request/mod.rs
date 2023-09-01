@@ -111,9 +111,9 @@ impl Request {
     }
     pub fn send(
         &self,
+        client: &reqwest::Client,
         params: &HashMap<String, String>,
     ) -> impl Future<Output = Result<reqwest::Response, reqwest::Error>> {
-        let client = reqwest::Client::new();
         let s = client.request(
             self.method.clone(),
             reqwest::Url::parse_with_params(&self.url, params).unwrap(),
@@ -131,6 +131,7 @@ pub struct ResponsePool {
     data: HashMap<String, serde_json::Value>,
     cache: HashMap<String, serde_json::Value>,
     request: HashMap<String, Request>,
+    client: reqwest::Client
 }
 
 impl ResponsePool {
@@ -139,6 +140,9 @@ impl ResponsePool {
             data: HashMap::new(),
             cache: HashMap::new(),
             request,
+            client: reqwest::ClientBuilder::new()
+                .cookie_store(true)
+                .build().unwrap()
         }
     }
     pub fn set_data_value(&mut self, name: &str, value: serde_json::Value) {
@@ -171,7 +175,7 @@ impl ResponsePool {
             if let Some(res) = self.cache.get(&key) {
                 Ok(res.clone())
             } else {
-                let req = r.send(&params);
+                let req = r.send(&self.client, &params);
                 let res: serde_json::Value = req.await?.json().await?;
                 self.cache.insert(key, res.clone());
                 let res = r.value_name().parse(&res);
