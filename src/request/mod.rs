@@ -109,7 +109,10 @@ impl Request {
         });
         Ok(HashMap::from_iter(map))
     }
-    pub fn send(&self, args: &HashMap<String, String>) -> impl Future<Output = Result<reqwest::Response, reqwest::Error>> {
+    pub fn send(
+        &self,
+        args: &HashMap<String, String>,
+    ) -> impl Future<Output = Result<reqwest::Response, reqwest::Error>> {
         let client = reqwest::Client::new();
         let s = client.request(
             self.method.clone(),
@@ -126,6 +129,7 @@ impl Request {
 #[derive(Debug)]
 pub struct ResponsePool {
     data: HashMap<String, serde_json::Value>,
+    cache: HashMap<String, serde_json::Value>,
     request: HashMap<String, Request>,
 }
 
@@ -133,6 +137,7 @@ impl ResponsePool {
     pub fn new(request: HashMap<String, Request>) -> Self {
         ResponsePool {
             data: HashMap::new(),
+            cache: HashMap::new(),
             request,
         }
     }
@@ -152,7 +157,7 @@ impl ResponsePool {
             for (n, v) in r.args.iter() {
                 let res = match v {
                     RequestArgument::Const(v) => v.clone(),
-                    RequestArgument::Ref(v) => self.get(&v).await?
+                    RequestArgument::Ref(v) => self.get(&v).await?,
                 };
                 let res = match res {
                     serde_json::Value::String(s) => s,
@@ -160,11 +165,19 @@ impl ResponsePool {
                 };
                 args.insert(n.clone(), res);
             }
-            let req = r.send(&args);
-            let res = req.await?.json().await?;
-            let res = r.value_name().parse(&res);
-            self.set_data_value(name, res.clone());
-            Ok(res.clone())
+            let key = reqwest::Url::parse_with_params(&r.url, &args)
+                .unwrap()
+                .to_string();
+            if let Some(res) = self.cache.get(&key) {
+                Ok(res.clone())
+            } else {
+                let req = r.send(&args);
+                let res: serde_json::Value = req.await?.json().await?;
+                self.cache.insert(key, res.clone());
+                let res = r.value_name().parse(&res);
+                self.set_data_value(name, res.clone());
+                Ok(res.clone())
+            }
         }
     }
 }
