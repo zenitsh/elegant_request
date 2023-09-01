@@ -9,19 +9,28 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let request =
-            Request::load_from_file("./res/example.yaml").unwrap();
+        let request = Request::load_from_file("./res/example.yaml").unwrap();
 
         let mut response_pool = ResponsePool::new(request);
 
         response_pool.set_data_value("input", serde_json::Value::Number(Number::from(2)));
 
-        let _c = tokio::runtime::Runtime::new().unwrap().block_on(response_pool.get("foo"));
-        let _c = tokio::runtime::Runtime::new().unwrap().block_on(response_pool.get("foo"));
-        let _c = tokio::runtime::Runtime::new().unwrap().block_on(response_pool.get("foo"));
-        let _c = tokio::runtime::Runtime::new().unwrap().block_on(response_pool.get("foo"));
-        let c = tokio::runtime::Runtime::new().unwrap().block_on(response_pool.get("foo"));
-        println!("{:?}", response_pool);
+        let c = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(response_pool.get("home"));
         println!("{:?}", c);
+        let c = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(response_pool.get("water"));
+        println!("{:?}", c);
+        let c = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(response_pool.get("color"));
+        println!("{:?}", c);
+        let c = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(response_pool.get("temperature"));
+        println!("{:?}", c);
+        println!("{:?}", response_pool);
     }
 }

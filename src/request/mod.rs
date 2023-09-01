@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, future::Future};
+use std::{collections::HashMap, error::Error};
 
 use reqwest::Method;
 use serde_derive::{Deserialize, Serialize};
@@ -58,6 +58,7 @@ pub enum RequestArgument {
 #[derive(Debug, Clone)]
 pub struct Request {
     method: Method,
+    path: Vec<RequestArgument>,
     params: HashMap<String, RequestArgument>,
     url: String,
     value_name: ValueName,
@@ -66,6 +67,7 @@ pub struct Request {
 #[derive(Serialize, Deserialize)]
 struct RequestYamlStruct {
     params: HashMap<String, RequestArgument>,
+    path: Vec<RequestArgument>,
     url: String,
     value: String,
 }
@@ -81,12 +83,14 @@ enum RequestYamlEnum {
 impl Request {
     pub fn new(
         method: Method,
+        path: Vec<RequestArgument>,
         params: HashMap<String, RequestArgument>,
         url: &str,
         value_name: ValueName,
     ) -> Self {
         Request {
             method,
+            path,
             params,
             url: String::from(url),
             value_name,
@@ -104,23 +108,18 @@ impl Request {
             };
             (
                 s.clone(),
-                Request::new(m, r.params.clone(), &r.url, ValueName::from_str(&r.value)),
+                Request::new(
+                    m,
+                    r.path.clone(),
+                    r.params.clone(),
+                    &r.url,
+                    ValueName::from_str(&r.value),
+                ),
             )
         });
         Ok(HashMap::from_iter(map))
     }
-    pub fn send(
-        &self,
-        client: &reqwest::Client,
-        params: &HashMap<String, String>,
-    ) -> impl Future<Output = Result<reqwest::Response, reqwest::Error>> {
-        let s = client.request(
-            self.method.clone(),
-            reqwest::Url::parse_with_params(&self.url, params).unwrap(),
-        );
-        println!("{:?}", s);
-        s.send()
-    }
+
     pub fn value_name(&self) -> &ValueName {
         &self.value_name
     }
@@ -131,7 +130,7 @@ pub struct ResponsePool {
     data: HashMap<String, serde_json::Value>,
     cache: HashMap<String, serde_json::Value>,
     request: HashMap<String, Request>,
-    client: reqwest::Client
+    client: reqwest::Client,
 }
 
 impl ResponsePool {
@@ -142,7 +141,8 @@ impl ResponsePool {
             request,
             client: reqwest::ClientBuilder::new()
                 .cookie_store(true)
-                .build().unwrap()
+                .build()
+                .unwrap(),
         }
     }
     pub fn set_data_value(&mut self, name: &str, value: serde_json::Value) {
@@ -152,6 +152,18 @@ impl ResponsePool {
         self.data.get(name).unwrap().clone()
     }
     #[async_recursion]
+    pub async fn eval(&mut self, v: &RequestArgument) -> Result<String, Box<dyn Error>> {
+        let res = match v {
+            RequestArgument::Const(v) => v.clone(),
+            RequestArgument::Ref(v) => self.get(&v).await?,
+        };
+        let res = match res {
+            serde_json::Value::String(s) => s,
+            s => s.to_string(),
+        };
+        Ok(res)
+    }
+    #[async_recursion]
     pub async fn get(&mut self, name: &str) -> Result<serde_json::Value, Box<dyn Error>> {
         if let Some(v) = self.data.get(name) {
             Ok(v.clone())
@@ -159,29 +171,31 @@ impl ResponsePool {
             let r = self.request.get(name).unwrap().clone();
             let mut params = HashMap::new();
             for (n, v) in r.params.iter() {
-                let res = match v {
-                    RequestArgument::Const(v) => v.clone(),
-                    RequestArgument::Ref(v) => self.get(&v).await?,
-                };
-                let res = match res {
-                    serde_json::Value::String(s) => s,
-                    s => s.to_string(),
-                };
-                params.insert(n.clone(), res);
+                params.insert(n.clone(), self.eval(v).await?);
             }
-            let key = reqwest::Url::parse_with_params(&r.url, &params)
-                .unwrap()
-                .to_string();
-            if let Some(res) = self.cache.get(&key) {
-                Ok(res.clone())
+            let mut path = Vec::new();
+            for s in r.path.iter() {
+                path.push(self.eval(s).await?);
+            }
+            let path = path.iter().fold(String::from(&r.url), |a, b| a + "/" + b);
+            let url = if params.len() > 0 {
+                reqwest::Url::parse_with_params(&path, &params).unwrap()
             } else {
-                let req = r.send(&self.client, &params);
-                let res: serde_json::Value = req.await?.json().await?;
+                reqwest::Url::parse(&path).unwrap()
+            };
+            let key = url.to_string();
+            let res = if let Some(res) = self.cache.get(&key) {
+                res.clone()
+            } else {
+                println!("Request:{}", url);
+                let req = self.client.request(r.method.clone(), url);
+                let res: serde_json::Value = req.send().await?.json().await?;
                 self.cache.insert(key, res.clone());
-                let res = r.value_name().parse(&res);
-                self.set_data_value(name, res.clone());
-                Ok(res.clone())
-            }
+                res
+            };
+            let res = r.value_name().parse(&res);
+            self.set_data_value(name, res.clone());
+            Ok(res.clone())
         }
     }
 }
