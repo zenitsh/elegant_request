@@ -34,18 +34,17 @@ impl ValueName {
             }
         }
     }
-    pub fn parse<'a>(&'a self, s: &'a serde_json::Value) -> &'a serde_json::Value {
+    pub fn parse<'a>(&'a self, s: &'a serde_json::Value) -> Result<&'a serde_json::Value, String> {
         let mut v = s;
         if let Some(v1) = self.names.clone() {
             for n in v1.iter() {
                 v = match n {
-                    Index::Integer(v2) => v.get(v2),
-                    Index::String(v2) => v.get(v2),
-                }
-                .unwrap();
+                    Index::Integer(v2) => v.get(v2).ok_or(format!("No key: {}", v2))?,
+                    Index::String(v2) => v.get(v2).ok_or(format!("No key: {}", v2))?,
+                };
             }
         }
-        v
+        Ok(v)
     }
 }
 
@@ -134,22 +133,21 @@ pub struct ResponsePool {
 }
 
 impl ResponsePool {
-    pub fn new(request: HashMap<String, Request>) -> Self {
-        ResponsePool {
+    pub fn new(request: HashMap<String, Request>) -> Result<Self, String> {
+        Ok(ResponsePool {
             data: HashMap::new(),
             cache: HashMap::new(),
             request,
             client: reqwest::ClientBuilder::new()
                 .cookie_store(true)
-                .build()
-                .unwrap(),
-        }
+                .build().map_err(|err| { err.to_string() })?,
+        })
     }
     pub fn set_data_value(&mut self, name: &str, value: serde_json::Value) {
         self.data.insert(String::from(name), value);
     }
-    pub fn data_value(&self, name: &str) -> serde_json::Value {
-        self.data.get(name).unwrap().clone()
+    pub fn data_value(&self, name: &str) -> Option<serde_json::Value> {
+        self.data.get(name).map(|val| { val.clone() })
     }
     #[async_recursion]
     pub async fn eval(&mut self, v: &RequestArgument) -> Result<String, Box<dyn Error>> {
@@ -168,20 +166,21 @@ impl ResponsePool {
         if let Some(v) = self.data.get(name) {
             Ok(v.clone())
         } else {
-            let r = self.request.get(name).unwrap().clone();
+            let r = self.request.get(name).ok_or(|_| { "Request not exists." })?.clone();
             let mut params = HashMap::new();
             for (n, v) in r.params.iter() {
                 params.insert(n.clone(), self.eval(v).await?);
             }
+            let params = params;
             let mut path = Vec::new();
             for s in r.path.iter() {
                 path.push(self.eval(s).await?);
             }
             let path = path.iter().fold(String::from(&r.url), |a, b| a + "/" + b);
             let url = if params.len() > 0 {
-                reqwest::Url::parse_with_params(&path, &params).unwrap()
+                reqwest::Url::parse_with_params(&path, &params)?
             } else {
-                reqwest::Url::parse(&path).unwrap()
+                reqwest::Url::parse(&path)?
             };
             let key = url.to_string();
             let res = if let Some(res) = self.cache.get(&key) {
@@ -193,7 +192,7 @@ impl ResponsePool {
                 self.cache.insert(key, res.clone());
                 res
             };
-            let res = r.value_name().parse(&res);
+            let res = r.value_name().parse(&res)?;
             self.set_data_value(name, res.clone());
             Ok(res.clone())
         }
