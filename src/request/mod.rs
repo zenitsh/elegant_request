@@ -166,7 +166,7 @@ impl ResponsePool {
         if let Some(v) = self.data.get(name) {
             Ok(v.clone())
         } else {
-            let r = self.request.get(name).ok_or(|_| { "Request not exists." })?.clone();
+            let r = self.request.get(name).ok_or("Request not exists.")?.clone();
             let mut params = HashMap::new();
             for (n, v) in r.params.iter() {
                 params.insert(n.clone(), self.eval(v).await?);

@@ -11,7 +11,7 @@ mod tests {
     fn it_works() {
         let request = Request::load_from_file("./res/example.yaml").unwrap();
 
-        let mut response_pool = ResponsePool::new(request);
+        let mut response_pool = ResponsePool::new(request).unwrap();
 
         response_pool.set_data_value("input", serde_json::Value::Number(Number::from(2)));
 
