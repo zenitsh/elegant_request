@@ -21,15 +21,11 @@ mod tests {
         println!("{:?}", c);
         let c = tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(response_pool.get("water"));
-        println!("{:?}", c);
-        let c = tokio::runtime::Runtime::new()
-            .unwrap()
             .block_on(response_pool.get("color"));
         println!("{:?}", c);
         let c = tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(response_pool.get("temperature"));
+            .block_on(response_pool.get("person"));
         println!("{:?}", c);
         println!("{:?}", response_pool);
     }

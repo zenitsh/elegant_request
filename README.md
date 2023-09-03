@@ -5,17 +5,24 @@ Write your requests into a yaml file.
 It's so easy!
 
 ```yaml
-foo: !Get
-  url: <url>
-  args:
-    a: !Const 1
-    b: !Const abc
-  value: data.value
-bar: !Get
-  url: <url>
-  args:
-    t: !Ref foo
-  value: !None
+color: !Get
+  url: http://127.0.0.1:3000/dog
+  path:
+    - !Const X
+  params: {}
+  value: color
+person: !Get
+  url: http://127.0.0.1:3000/dog
+  path:
+    - !Const X
+  params: {}
+  value: owner
+home: !Get
+  url: http://127.0.0.1:3000/home
+  path: []
+  params:
+    person: !Ref person
+  value: data.location
 ```
 ## Syntax
 ```
