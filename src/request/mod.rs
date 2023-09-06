@@ -197,4 +197,7 @@ impl ResponsePool {
             Ok(res.clone())
         }
     }
+    pub fn client<'a>(&'a self) -> &'a reqwest::Client {
+        &self.client
+    }
 }
