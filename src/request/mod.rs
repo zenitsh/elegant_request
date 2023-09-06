@@ -143,6 +143,12 @@ impl ResponsePool {
                 .build().map_err(|err| { err.to_string() })?,
         })
     }
+    pub fn clear_data(&mut self) {
+        self.data.clear();
+    }
+    pub fn clear_cache(&mut self) {
+        self.cache.clear();
+    }
     pub fn set_data_value(&mut self, name: &str, value: serde_json::Value) {
         self.data.insert(String::from(name), value);
     }
